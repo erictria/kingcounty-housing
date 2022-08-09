@@ -1,0 +1,167 @@
+# Metadata
+- Title: Multiple Linear Regression on King County Data
+#
+
+```{r, output = FALSE, show = FALSE}
+library(tidyverse)
+library(leaps)
+```
+
+```{r}
+kc <- read.csv('kc_house_data.csv', header = TRUE)
+```
+```{r}
+filtered_kc <- kc %>%
+  subset(select = -c(id, date, zipcode, lat, long, yr_built, yr_renovated))
+
+set.seed(1) ##for reproducibility to get the same split
+sample <- sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
+train <- filtered_kc[sample, ] ##training data frame
+test <- filtered_kc[-sample, ] ##test data frame
+```
+
+```{r}
+sqft_cols <- c('sqft_living', 'sqft_lot', 'sqft_above', 'sqft_basement', 'sqft_living15', 'sqft_lot15')
+count_cols <- c('bedrooms', 'bathrooms', 'floors')
+index_cols <- c('view', 'condition', 'grade')
+binary_col <- c('waterfront')
+```
+
+```{r}
+train[, c('price', sqft_cols)] %>%
+  pairs(lower.panel = NULL)
+```
+```{r}
+train[, c('price', sqft_cols)] %>%
+  cor
+```
+From the columns measured in sqft, the ones correlated to price are:
+
+- sqft_living
+- sqft_above
+- sqft_living15
+
+Note that all 3 are highly correlated with each other.
+
+```{r}
+train[, c('price', count_cols)] %>%
+  pairs(lower.panel = NULL)
+```
+```{r}
+train[, c('price', count_cols)] %>%
+  cor
+```
+From the columns measured in count, the most correlated to price is:
+
+- bathrooms
+
+```{r}
+train[, c('price', index_cols)] %>%
+  pairs(lower.panel = NULL)
+```
+```{r}
+train[, c('price', index_cols)] %>%
+  cor
+```
+From the columns measured in index, the most correlated to price is:
+
+- grade
+
+```{r}
+# Adding category values.
+#train_2 <- train %>%
+#  mutate(
+#    grade_cat = cut(grade, breaks = c(-Inf, 5, 10, Inf), labels = c('low', 'moderate', 'high'), right = FALSE), # 1-4 low, 5-9 moderate, 10-13 high
+#    view_cat = cut(view, breaks = c(-Inf, 2, 3, Inf), labels = c('low', 'moderate', 'high'), right = FALSE),
+#    condition_cat = cut(condition, breaks = c(-Inf, 3, 4, Inf), labels = c('low', 'moderate', 'high'), right = FALSE)
+#    
+#)
+
+train$waterfront <- factor(train$waterfront)
+levels(train$waterfront) <- c('No', 'Yes')
+```
+
+```{r}
+#train %>%
+#  ggplot(aes(x = sqft_living, y = price, color = grade_cat)) +
+#  geom_point() +
+#  geom_smooth(method = lm, se = FALSE) +
+#  labs(x = 'sqft_living', y = 'price', color = 'grade_cat', title = 'Price against sqft_living and grade_cat')
+```
+```{r}
+
+train %>%
+  ggplot(aes(x = sqft_living, y = price, color = waterfront)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(x = 'sqft_living', y = 'price', color = 'waterfront', title = 'Price against sqft_living and waterfront')
+```
+
+# Based on the shortlist of columns
+```{r}
+cols_shortlist <- c('price', 'sqft_living', 'sqft_above', 'sqft_living15', 'bathrooms', 'grade', 'waterfront')
+train_filtered <- train[, cols_shortlist]
+```
+```{r}
+allreg <- regsubsets(price ~ ., data = train_filtered, nbest = 1)
+
+# adjusted r2
+coef(allreg, which.max(summary(allreg)$adjr2))
+
+# mallow's cp
+coef(allreg, which.min(summary(allreg)$cp))
+
+# bic
+coef(allreg, which.min(summary(allreg)$bic))
+```
+```{r}
+# intercept only model
+regnull <- lm(price ~ 1, data = train_filtered)
+# model with all predictors
+regfull <- lm(price ~ ., data = train_filtered)
+```
+```{r}
+#step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'forward')
+step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'both')
+```
+
+
+```{r}
+# lm_result <- lm(price ~ ., data = train_filtered)
+lm_result <- lm(price ~ sqft_living + bathrooms + grade + waterfront, data = train_filtered)
+summary(lm_result)
+```
+
+Using all of the predictors from the initial dataset
+
+```{r}
+allreg_test <- regsubsets(price ~ ., data = train, nbest = 1)
+
+# adjusted r2
+coef(allreg_test, which.max(summary(allreg_test)$adjr2))
+
+# mallow's cp
+coef(allreg_test, which.min(summary(allreg_test)$cp))
+
+# bic
+coef(allreg_test, which.min(summary(allreg_test)$bic))
+```
+
+```{r}
+lm_all <- lm(price ~ sqft_living + sqft_basement + sqft_living15 + bedrooms + bathrooms + view + condition + grade + waterfront, data = train)
+summary(lm_all)
+```
+```{r}
+train[, c('price', 'sqft_living', 'sqft_basement', 'sqft_living15', 'bedrooms', 'bathrooms', 'view', 'condition', 'grade')] %>%
+  cor
+```
+
+```{r}
+lm_reduced <- lm(price ~ sqft_living + bathrooms + bedrooms + condition + grade + waterfront, data = train)
+summary(lm_reduced)
+```
+
+```{r}
+anova(lm_reduced, lm_all)
+```
+Reject the null. Proceed with full model??
