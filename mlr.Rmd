@@ -5,6 +5,7 @@
 ```{r, output = FALSE, show = FALSE}
 library(tidyverse)
 library(leaps)
+library(faraway)
 ```
 
 ```{r}
@@ -12,7 +13,14 @@ kc <- read.csv('kc_house_data.csv', header = TRUE)
 ```
 ```{r}
 filtered_kc <- kc %>%
-  subset(select = -c(id, date, zipcode, lat, long, yr_built, yr_renovated))
+  subset(select = -c(id, date, zipcode, lat, long, yr_renovated)) # %>%
+  # mutate(grade_bin = cut(grade, breaks = c(-Inf, 8, Inf), labels = c(0, 1), right = FALSE)) # 1-7 bad, 8-13 good
+
+#filtered_kc$grade_bin <- factor(filtered_kc$grade_bin)
+#levels(filtered_kc$grade_bin) <- c('Bad', 'Good')
+
+filtered_kc$waterfront <- factor(filtered_kc$waterfront)
+levels(filtered_kc$waterfront) <- c('No', 'Yes')
 
 set.seed(1) ##for reproducibility to get the same split
 sample <- sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
@@ -22,9 +30,9 @@ test <- filtered_kc[-sample, ] ##test data frame
 
 ```{r}
 sqft_cols <- c('sqft_living', 'sqft_lot', 'sqft_above', 'sqft_basement', 'sqft_living15', 'sqft_lot15')
-count_cols <- c('bedrooms', 'bathrooms', 'floors')
+count_cols <- c('bedrooms', 'bathrooms', 'floors', 'yr_built')
 index_cols <- c('view', 'condition', 'grade')
-binary_col <- c('waterfront')
+binary_col <- c('waterfront', 'grade_bin')
 ```
 
 ```{r}
@@ -99,69 +107,166 @@ train %>%
 
 # Based on the shortlist of columns
 ```{r}
-cols_shortlist <- c('price', 'sqft_living', 'sqft_above', 'sqft_living15', 'bathrooms', 'grade', 'waterfront')
-train_filtered <- train[, cols_shortlist]
+#cols_shortlist <- c('price', 'sqft_living', 'sqft_above', 'sqft_living15', 'bathrooms', 'grade', 'waterfront')
+#train_filtered <- train[, cols_shortlist]
 ```
 ```{r}
-allreg <- regsubsets(price ~ ., data = train_filtered, nbest = 1)
+#allreg <- regsubsets(price ~ ., data = train_filtered, nbest = 1)
 
 # adjusted r2
-coef(allreg, which.max(summary(allreg)$adjr2))
+#coef(allreg, which.max(summary(allreg)$adjr2))
 
 # mallow's cp
-coef(allreg, which.min(summary(allreg)$cp))
+#coef(allreg, which.min(summary(allreg)$cp))
 
 # bic
-coef(allreg, which.min(summary(allreg)$bic))
+#coef(allreg, which.min(summary(allreg)$bic))
 ```
 ```{r}
 # intercept only model
-regnull <- lm(price ~ 1, data = train_filtered)
+#regnull <- lm(price ~ 1, data = train_filtered)
 # model with all predictors
-regfull <- lm(price ~ ., data = train_filtered)
+#regfull <- lm(price ~ ., data = train_filtered)
 ```
 ```{r}
 #step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'forward')
-step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'both')
+#step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'both')
 ```
 
 
 ```{r}
 # lm_result <- lm(price ~ ., data = train_filtered)
-lm_result <- lm(price ~ sqft_living + bathrooms + grade + waterfront, data = train_filtered)
-summary(lm_result)
+#lm_result <- lm(price ~ sqft_living + bathrooms + grade + waterfront, data = train_filtered)
+#summary(lm_result)
 ```
 
 Using all of the predictors from the initial dataset
 
 ```{r}
-allreg_test <- regsubsets(price ~ ., data = train, nbest = 1)
+allreg <- regsubsets(price ~ ., data = train, nbest = 1)
 
 # adjusted r2
-coef(allreg_test, which.max(summary(allreg_test)$adjr2))
+coef(allreg, which.max(summary(allreg_test)$adjr2))
 
 # mallow's cp
-coef(allreg_test, which.min(summary(allreg_test)$cp))
+coef(allreg, which.min(summary(allreg_test)$cp))
 
 # bic
-coef(allreg_test, which.min(summary(allreg_test)$bic))
+coef(allreg, which.min(summary(allreg_test)$bic))
+```
+```{r}
+# intercept only model
+regnull <- lm(price ~ 1, data = train)
+# model with all predictors
+regfull <- lm(price ~ ., data = train)
+
+step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'both')
+```
+```{r}
+step(regfull, scope=list(lower = regnull, upper = regfull), direction = 'both')
 ```
 
+
 ```{r}
-lm_all <- lm(price ~ sqft_living + sqft_basement + sqft_living15 + bedrooms + bathrooms + view + condition + grade + waterfront, data = train)
+lm_all <- lm(price ~ sqft_living + sqft_above + sqft_living15 + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
 summary(lm_all)
 ```
 ```{r}
-train[, c('price', 'sqft_living', 'sqft_basement', 'sqft_living15', 'bedrooms', 'bathrooms', 'view', 'condition', 'grade')] %>%
+train[, c('price', 'sqft_living', 'sqft_above', 'sqft_living15', 'sqft_lot15', 'bedrooms', 'bathrooms', 'floors', 'yr_built', 'view', 'condition', 'grade')] %>%
   cor
 ```
 
 ```{r}
-lm_reduced <- lm(price ~ sqft_living + bathrooms + bedrooms + condition + grade + waterfront, data = train)
-summary(lm_reduced)
+# lm_reduced <- lm(price ~ sqft_living + bedrooms + view + grade + waterfront, data = train)
+lm_reduced_1 <- lm(price ~ sqft_living + sqft_living15 + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
+summary(lm_reduced_1)
+anova(lm_reduced_1, lm_all)
+vif(lm_reduced_1)
 ```
 
 ```{r}
-anova(lm_reduced, lm_all)
+lm_reduced_2 <- lm(price ~ sqft_living + bedrooms + bathrooms + yr_built + view + grade + waterfront, data = train)
+summary(lm_reduced_2)
+anova(lm_reduced_2, lm_reduced_1)
 ```
-Reject the null. Proceed with full model??
+- Reject the null. Proceed with lm_result_1 (11 predictors)
+
+```{r}
+compute_press <- function(model) { 
+  residuals <- summary(model)$residuals 
+  hat_diagonals <- influence(model)$hat
+  pr <- residuals/(1 - hat_diagonals)
+  press <- sum(pr^2)
+  return(press) 
+}
+
+press <- compute_press(lm_reduced_1)
+press
+
+# use anova() to get the sum of squares for the linear model
+lm_anova <- anova(lm_reduced_1)
+sst <- sum(lm_anova$'Sum Sq')
+
+# calculate the predictive R^2
+pred_r_squared <- 1 - press/(sst)
+pred_r_squared
+```
+
+
+# STICK WITH lm_reduced_1 (11 predictors)
+
+```{r}
+lm_no_sqft_living <- lm(price ~ sqft_living15 + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
+sqft_living_lm <- lm(sqft_living ~ sqft_living15 + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
+
+partial_data_sqft_living <- data.frame(x_res = summary(sqft_living_lm)$residuals, y_res = summary(lm_no_sqft_living)$residuals)
+
+partial_data_sqft_living %>%
+  ggplot(aes(x = x_res, y = y_res)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(x = 'sqft_living Residuals', y = 'y Residuals (Excluding sqft_living)', title = 'Partial Regression Plot for sqft_living')
+```
+
+```{r}
+lm_no_sqft_living15 <- lm('price ~ sqft_living + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront', data = train)
+sqft_living15_lm <- lm(sqft_living15 ~ sqft_living + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
+
+partial_data_sqft_living15 <- data.frame(x_res = summary(sqft_living15_lm)$residuals, y_res = summary(lm_no_sqft_living15)$residuals)
+
+partial_data_sqft_living15 %>%
+  ggplot(aes(x = x_res, y = y_res)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(x = 'sqft_living15 Residuals', y = 'y Residuals (Excluding sqft_living15)', title = 'Partial Regression Plot for sqft_living15')
+```
+```{r}
+generate_partial_regression_plot <- function(response, predictor, predictors, lm_data) {
+  filtered_predictors <- predictors[! predictors %in% c(predictor)]
+  predictors_str <- paste(filtered_predictors, sep = ' + ')
+  lm_no_x_str <- paste(response, predictors_str, sep = ' ~ ')
+  x_lm_str <- paste(predictor, predictors_str, sep = ' ~ ')
+  lm_no_x <- lm(lm_no_x_str, data = lm_data)
+  x_lm <- lm(x_lm_str, data = lm_data)
+  
+  partial_data_x <- data.frame(x_res = summary(x_lm)$residuals, y_res = summary(lm_no_x)$residuals)
+  
+  x_label <- paste(predictor, 'Residuals', collapse = ' ')
+  y_label <- paste('price Residuals excluding', predictor, collapse = ' ')
+  title_str <- paste('Partial Regression Plot for', predictor, collapse = ' ')
+  
+  partial_data_x %>%
+    ggplot(aes(x = x_res, y = y_res)) +
+    geom_point() +
+    geom_smooth(method = lm, se = FALSE) +
+    labs(x = x_label, y = y_label, title = title_str)
+}
+```
+```{r}
+predictors = c('sqft_living', 'sqft_living15', 'sqft_lot15', 'bedrooms', 'bathrooms', 'floors', 'yr_built', 'view', 'condition', 'grade', 'waterfront')
+generate_partial_regression_plot('price', 'bathrooms', predictors, train)
+#for (predictor in predictors) {
+#  generate_partial_regression_plot('price', predictor, predictors, train)
+#}
+```
+
