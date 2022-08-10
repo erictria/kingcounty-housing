@@ -1,0 +1,34 @@
+```{r}
+library(tidyverse)
+library(dplyr)
+library(MASS)
+library(ggplot2)
+library(leaps)
+library(gridExtra)
+library(ROCR)
+library(maps)
+
+
+Data <-read.csv("kc_house_data.csv", header=TRUE)
+```
+
+```{r}
+Data[,'condition']<-factor(Data[,'condition'])
+class(Data$condition)
+```
+
+```{r}
+boxplot(log(price) ~ condition, data = Data)
+```
+
+```{r}
+ggplot(Data, aes(x=condition, y=log(price)))+
+  geom_boxplot(aes(fill=condition)) + 
+  labs(x="Condition", y="Price (log of)", color="Price Bracket",
+      title="Distribution of Homes in King County by Price Bracket") +
+  theme_economist() + 
+  scale_fill_economist()+
+  theme_bw() +
+  theme(plot.title=element_text(hjust=0.5, vjust=5))+
+  theme(plot.title = element_text(vjust = 1))
+```
