@@ -36,7 +36,7 @@ expanded_kc <- merge(x = kc, y = zipcodes, by = 'zipcode', all.x = T)
 ```{r}
 filtered_kc <- expanded_kc %>%
   mutate(
-    good_area = factor(ifelse(!is.na(area_bin), 1, 0)), ## using the grades from Niche
+    area_bin = factor(ifelse(!is.na(area_bin), 1, 0)), ## using the grades from Niche
     renovated = factor(ifelse(yr_renovated > 0, 1, 0)),
     waterfront = factor(waterfront),
   ) %>%
@@ -81,7 +81,7 @@ train[, c('price', index_cols)] %>%
 - We will also use view since our model factors in the location of a house.
 
 In addition to these, we will use location features as predictors:
-- good_area
+- area_bin
 - waterfront
 
 We will also be using the age of the house and if it has been renovated or not:
@@ -91,10 +91,10 @@ We will also be using the age of the house and if it has been renovated or not:
 
 ```{r}
 train <- train %>%
-  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, good_area, waterfront, view, yr_built, renovated)) ##training data frame
+  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, area_bin, waterfront, view, yr_built, renovated)) ##training data frame
 
 test <- test %>%
-  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, good_area, waterfront, view, yr_built, renovated)) ##test data frame
+  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, area_bin, waterfront, view, yr_built, renovated)) ##test data frame
 ```
 
 ```{r}
@@ -136,7 +136,18 @@ Predictors selected: No predictors were eliminated. Same with forward selection,
 ```{r}
 summary(regfull)
 ```
-The predictors in the full regression model all had significant individual t-tests. We will proceed to validate this model.
+The predictors in the full regression model all had significant individual t-tests. 
+
+Although all the t-tests are significant, we noticed that `bedrooms` and `yr_built` have negative coefficients, which is the opposite of their individual correlations with price. We will conduct a reduced F test to check if we can drop those predictors.
+
+```{r}
+reduced <- lm(price ~ sqft_living + bathrooms + grade + area_bin + waterfront + view + renovated, data = train)
+anova(reduced, regfull)
+```
+
+With a p-value of 2.2e-16, which is smaller than 0.05, we reject the null hypothesis that `bedrooms` and `yr_built` are insignificant. We will proceed with using the full model.
+
+We will proceed to validate the full model.
 
 ### Detecting multicollinearity
 
@@ -173,7 +184,7 @@ train <- train %>%
   mutate(log_price = log(price))
 
 transformed <- lm(log_price ~ sqft_living + bedrooms + bathrooms + grade + 
-    good_area + waterfront + view + yr_built + renovated, data = train)
+    area_bin + waterfront + view + yr_built + renovated, data = train)
 summary(transformed)
 ```
 
@@ -202,7 +213,7 @@ train <- train %>%
   mutate(log_sqft_living = log(sqft_living))
 
 transformed_x_y <- lm(log_price ~ log_sqft_living + bedrooms + bathrooms + grade + view + yr_built + 
-    good_area + waterfront + renovated, data = train)
+    area_bin + waterfront + renovated, data = train)
 summary(transformed_x_y)
 ```
 ```{r}
@@ -242,7 +253,7 @@ levene.test(train$log_price, train$renovated)
 ```
 
 ```{r}
-levene.test(train$log_price, train$good_area)
+levene.test(train$log_price, train$area_bin)
 ```
 For each categorical predictor used in this model, we conducted a Levene's test. However, all of the results failed to support the assumption that variances are equal across all classes. Based on the nature of the data, we expect this to happen. In the dataset, houses that are ar the waterfront or have been renovated are in the minority. 
 ```{r}
@@ -252,7 +263,17 @@ table(train$waterfront)
 table(train$renovated)
 ```
 
-For `good_area`, the split used for this analysis is separating the really good areas from the rest. Because of that, the result of the Levene's test is expected.
+For `area_bin`, the split used for this analysis is separating the really good areas from the rest. Because of that, the result of the Levene's test is expected.
+
+Check ratio of largest variance with lowest variance:
+```{r}
+lm_anova <- anova(transformed_x_y)
+lm_anova
+area_bin_msres <- lm_anova[7,]$'Sum Sq'/(n - p)
+area_bin_msres
+waterfront_msres <- lm_anova[8,]$'Sum Sq'/(n - p)
+renovated_msres <- lm_anova[9,]$'Sum Sq'/(n - p)
+```
 
 We will proceed with validating our regression model.
 
@@ -325,20 +346,16 @@ lev <- lm.influence(transformed_x_y)$hat ##identify high leverage points
 length(lev[lev>2*p/n])
 ```
 
-We have a lot of leverage points.
+We have a lot of leverage points. The next step is to check if these leverage points are influential.
 
-Influential points based on Cook's distance
+Since the goal of our model is predict overall prices, we will check for influential points based on Cook's distance.
 ```{r}
 ##cooks distance
 COOKS <- cooks.distance(transformed_x_y)
 COOKS[COOKS>qf(0.5,p,n-p)]
 ```
-```{r}
-##dffits
-DFFITS <- dffits(transformed_x_y)
-length(DFFITS[abs(DFFITS) > 2*sqrt(p/n)])
-```
-We have no influential pointes based on Cook's distance.
+
+We have no influential points based on Cook's distance.
 
 ### Partial Regression Plots
 ```{r}
@@ -365,7 +382,7 @@ generate_partial_regression_plot <- function(response, predictor, predictors, lm
 ```
 
 ```{r}
-predictors = c('log_sqft_living', 'bedrooms', 'bathrooms', 'grade', 'view', 'yr_built', 'good_area', 'waterfront', 'renovated')
+predictors = c('log_sqft_living', 'bedrooms', 'bathrooms', 'grade', 'view', 'yr_built', 'area_bin', 'waterfront', 'renovated')
 ```
 ```{r}
 generate_partial_regression_plot('log_price', 'log_sqft_living', predictors, train)
@@ -388,3 +405,43 @@ generate_partial_regression_plot('log_price', 'view', predictors, train)
 generate_partial_regression_plot('log_price', 'yr_built', predictors, train)
 ```
 Partial regression plots of the continuous predictors show linear patterns. This confirms that they can be added as linear predictors in the model.
+
+### Interpreting Coefficients
+```{r}
+summary(transformed_x_y)
+```
+```{r}
+intercept_factor <- exp(14.4226479)
+intercept_factor
+  
+# for every 1% increase in sqft_living, we expect 0.4549205% increase in response
+# can use taylor series since coefficient is smaller in magnitude
+sqft_living_factor <- 0.4549205
+sqft_living_factor
+
+bedrooms_factor <- exp(-0.0280571)
+bedrooms_factor
+
+bathrooms_factor <- exp(0.0606392)
+bathrooms_factor
+
+grade_factor <- exp(0.1591307)
+grade_factor
+
+view_factor <- exp(0.0650174)
+view_factor
+
+yr_built_factor <- exp(-0.0032341)
+yr_built_factor
+
+area_bin_factor <- exp(0.4468567)
+area_bin_factor
+
+waterfront_factor <- exp(0.4633652)
+waterfront_factor
+
+renovated_factor <- exp(0.0416109)
+renovated_factor
+
+```
+
