@@ -1,272 +1,176 @@
-# Metadata
-- Title: Multiple Linear Regression on King County Data
-#
+---
+title: "Project 2 - MLR"
+author: "Group 7"
+date: "`r Sys.Date()`"
+output: html_document
+---
 
-```{r, output = FALSE, show = FALSE}
-library(tidyverse)
+```{r}
 library(leaps)
+library(MASS)
+library(tidyverse)
 library(faraway)
 ```
 
 ```{r}
 kc <- read.csv('kc_house_data.csv', header = TRUE)
 ```
+
 ```{r}
 filtered_kc <- kc %>%
-  subset(select = -c(id, date, zipcode, lat, long, yr_renovated)) # %>%
-  # mutate(grade_bin = cut(grade, breaks = c(-Inf, 8, Inf), labels = c(0, 1), right = FALSE)) # 1-7 bad, 8-13 good
-
-#filtered_kc$grade_bin <- factor(filtered_kc$grade_bin)
-#levels(filtered_kc$grade_bin) <- c('Bad', 'Good')
-
-filtered_kc$waterfront <- factor(filtered_kc$waterfront)
-levels(filtered_kc$waterfront) <- c('No', 'Yes')
+  mutate(
+    renovated = factor(ifelse(yr_renovated > 0, 1, 0)),
+    view_bin = factor(view), # changed to factor since price and view has no clear linear relationship
+    waterfront = factor(waterfront),
+  ) %>%
+  subset(select = -c(id, date, zipcode, yr_renovated))
 
 set.seed(1) ##for reproducibility to get the same split
-sample <- sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
-train <- filtered_kc[sample, ] ##training data frame
-test <- filtered_kc[-sample, ] ##test data frame
+sample<-sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
+train<-filtered_kc[sample, ] ##training data frame
+test<-filtered_kc[-sample, ] ##test data frame
 ```
 
 ```{r}
 sqft_cols <- c('sqft_living', 'sqft_lot', 'sqft_above', 'sqft_basement', 'sqft_living15', 'sqft_lot15')
-count_cols <- c('bedrooms', 'bathrooms', 'floors', 'yr_built')
+count_cols <- c('bedrooms', 'bathrooms', 'floors')
 index_cols <- c('view', 'condition', 'grade')
 binary_col <- c('waterfront', 'grade_bin')
 ```
-
-```{r}
-train[, c('price', sqft_cols)] %>%
-  pairs(lower.panel = NULL)
-```
 ```{r}
 train[, c('price', sqft_cols)] %>%
   cor
 ```
-From the columns measured in sqft, the ones correlated to price are:
 
-- sqft_living
-- sqft_above
-- sqft_living15
+- From the features measured in square feet, sqft_living has the highest correlation with price at 0.7077887.
+- sqft_living is highly correlated with sqft_above and sqft_living15.
+- Based on the description, sqft_living should be the sum of sqft_above and sqft_basement.
+- From the features measured in square feet, we will use sqft_living as a predictor for the model.
 
-Note that all 3 are highly correlated with each other.
-
-```{r}
-train[, c('price', count_cols)] %>%
-  pairs(lower.panel = NULL)
-```
 ```{r}
 train[, c('price', count_cols)] %>%
   cor
 ```
-From the columns measured in count, the most correlated to price is:
 
-- bathrooms
+- Since the number of bathrooms and bedrooms are usually used for housing sales, we will use those two factors as predictors.
 
-```{r}
-train[, c('price', index_cols)] %>%
-  pairs(lower.panel = NULL)
-```
 ```{r}
 train[, c('price', index_cols)] %>%
   cor
 ```
-From the columns measured in index, the most correlated to price is:
 
-- grade
+- From the index features, grade has the highest correlation with price at 0.6697105.
+- We will use grade as a predictor in the model
+
+In addition to these, we will use location features as predictors:
+- long
+- lat
+- waterfront
+- view_bin (factorized version of view)
+
+We will also be using recency of the building:
+- yr_built
+- renovated
+
 
 ```{r}
-# Adding category values.
-#train_2 <- train %>%
-#  mutate(
-#    grade_cat = cut(grade, breaks = c(-Inf, 5, 10, Inf), labels = c('low', 'moderate', 'high'), right = FALSE), # 1-4 low, 5-9 moderate, 10-13 high
-#    view_cat = cut(view, breaks = c(-Inf, 2, 3, Inf), labels = c('low', 'moderate', 'high'), right = FALSE),
-#    condition_cat = cut(condition, breaks = c(-Inf, 3, 4, Inf), labels = c('low', 'moderate', 'high'), right = FALSE)
-#    
-#)
+filtered_kc <- filtered_kc %>%
+  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, lat, long, waterfront, view, yr_built, renovated))
 
-train$waterfront <- factor(train$waterfront)
-levels(train$waterfront) <- c('No', 'Yes')
+set.seed(1) ##for reproducibility to get the same split
+sample<-sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
+train<-filtered_kc[sample, ] ##training data frame
+test<-filtered_kc[-sample, ] ##test data frame
 ```
 
 ```{r}
-#train %>%
-#  ggplot(aes(x = sqft_living, y = price, color = grade_cat)) +
-#  geom_point() +
-#  geom_smooth(method = lm, se = FALSE) +
-#  labs(x = 'sqft_living', y = 'price', color = 'grade_cat', title = 'Price against sqft_living and grade_cat')
-```
-```{r}
-
-train %>%
-  ggplot(aes(x = sqft_living, y = price, color = waterfront)) +
-  geom_point() +
-  geom_smooth(method = lm, se = FALSE) +
-  labs(x = 'sqft_living', y = 'price', color = 'waterfront', title = 'Price against sqft_living and waterfront')
-```
-
-# Based on the shortlist of columns
-```{r}
-#cols_shortlist <- c('price', 'sqft_living', 'sqft_above', 'sqft_living15', 'bathrooms', 'grade', 'waterfront')
-#train_filtered <- train[, cols_shortlist]
-```
-```{r}
-#allreg <- regsubsets(price ~ ., data = train_filtered, nbest = 1)
-
-# adjusted r2
-#coef(allreg, which.max(summary(allreg)$adjr2))
-
-# mallow's cp
-#coef(allreg, which.min(summary(allreg)$cp))
-
-# bic
-#coef(allreg, which.min(summary(allreg)$bic))
-```
-```{r}
-# intercept only model
-#regnull <- lm(price ~ 1, data = train_filtered)
-# model with all predictors
-#regfull <- lm(price ~ ., data = train_filtered)
-```
-```{r}
-#step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'forward')
-#step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'both')
-```
-
-
-```{r}
-# lm_result <- lm(price ~ ., data = train_filtered)
-#lm_result <- lm(price ~ sqft_living + bathrooms + grade + waterfront, data = train_filtered)
-#summary(lm_result)
-```
-
-Using all of the predictors from the initial dataset
-
-```{r}
-allreg <- regsubsets(price ~ ., data = train, nbest = 1)
-
-# adjusted r2
-coef(allreg, which.max(summary(allreg_test)$adjr2))
-
-# mallow's cp
-coef(allreg, which.min(summary(allreg_test)$cp))
-
-# bic
-coef(allreg, which.min(summary(allreg_test)$bic))
-```
-```{r}
-# intercept only model
 regnull <- lm(price ~ 1, data = train)
-# model with all predictors
 regfull <- lm(price ~ ., data = train)
+```
 
+### Stepwise
+```{r}
 step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'both')
 ```
 ```{r}
 step(regfull, scope=list(lower = regnull, upper = regfull), direction = 'both')
 ```
-
-
 ```{r}
-lm_all <- lm(price ~ sqft_living + sqft_above + sqft_living15 + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
-summary(lm_all)
+summary(regfull)
 ```
 ```{r}
-train[, c('price', 'sqft_living', 'sqft_above', 'sqft_living15', 'sqft_lot15', 'bedrooms', 'bathrooms', 'floors', 'yr_built', 'view', 'condition', 'grade')] %>%
-  cor
+reduced <- lm(price ~ sqft_living + bedrooms + bathrooms + grade + view + lat + long + yr_built + waterfront, data = train)
+anova(reduced, regfull)
 ```
+Based on ANOVA F test, we reject the null and go with the reduced model without `renovated`
 
 ```{r}
-# lm_reduced <- lm(price ~ sqft_living + bedrooms + view + grade + waterfront, data = train)
-lm_reduced_1 <- lm(price ~ sqft_living + sqft_living15 + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
-summary(lm_reduced_1)
-anova(lm_reduced_1, lm_all)
-vif(lm_reduced_1)
+summary(reduced)
 ```
+### Detecting multicollinearity
 
 ```{r}
-lm_reduced_2 <- lm(price ~ sqft_living + bedrooms + bathrooms + yr_built + view + grade + waterfront, data = train)
-summary(lm_reduced_2)
-anova(lm_reduced_2, lm_reduced_1)
-```
-- Reject the null. Proceed with lm_result_1 (11 predictors)
-
-```{r}
-compute_press <- function(model) { 
-  residuals <- summary(model)$residuals 
-  hat_diagonals <- influence(model)$hat
-  pr <- residuals/(1 - hat_diagonals)
-  press <- sum(pr^2)
-  return(press) 
-}
-
-press <- compute_press(lm_reduced_1)
-press
-
-# use anova() to get the sum of squares for the linear model
-lm_anova <- anova(lm_reduced_1)
-sst <- sum(lm_anova$'Sum Sq')
-
-# calculate the predictive R^2
-pred_r_squared <- 1 - press/(sst)
-pred_r_squared
+vif(reduced)
 ```
 
+Based on the VIFs, there are no signs of multicollinearity.
 
-# STICK WITH lm_reduced_1 (11 predictors)
+### Check for interaction terms??
 
+### Regression Assumptions
 ```{r}
-lm_no_sqft_living <- lm(price ~ sqft_living15 + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
-sqft_living_lm <- lm(sqft_living ~ sqft_living15 + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
-
-partial_data_sqft_living <- data.frame(x_res = summary(sqft_living_lm)$residuals, y_res = summary(lm_no_sqft_living)$residuals)
-
-partial_data_sqft_living %>%
-  ggplot(aes(x = x_res, y = y_res)) +
+res <- data.frame(reduced$fitted.values, reduced$residuals)
+res %>%
+  ggplot(aes(x = reduced.fitted.values, y = reduced.residuals)) +
   geom_point() +
-  geom_smooth(method = lm, se = FALSE) +
-  labs(x = 'sqft_living Residuals', y = 'y Residuals (Excluding sqft_living)', title = 'Partial Regression Plot for sqft_living')
+  geom_hline(yintercept = 0, color = 'red') +
+  labs(x = 'Fitted y', y = 'Residuals', title = 'Residual Plot')
+```
+```{r}
+ acf(reduced$residuals, main = 'ACF Plot of Residuals')
+```
+```{r}
+qqnorm(reduced$residuals)
+qqline(reduced$residuals, col = 'red')
+```
+```{r}
+boxcox(reduced, lambda = seq(0, 0.4, 0.01))
+```
+Transform the response variable
+y* = log(y)
+Applied log so that the coefficients can still be interpreted.
+
+```{r}
+train <- train %>% 
+  mutate(ystar = log(price))
+
+transformed <- lm(ystar ~ sqft_living + bedrooms + bathrooms + grade + view + lat + long + yr_built + waterfront, data = train)
+summary(transformed)
+```
+`long` appears to be insignificant after transforming `price`
+
+```{r}
+transformed_reduced <- lm(ystar ~ sqft_living + bedrooms + bathrooms + grade + view + lat + yr_built + waterfront, data = train)
+summary(transformed_reduced)
 ```
 
 ```{r}
-lm_no_sqft_living15 <- lm('price ~ sqft_living + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront', data = train)
-sqft_living15_lm <- lm(sqft_living15 ~ sqft_living + sqft_lot15 + bedrooms + bathrooms + floors + yr_built + view + condition + grade + waterfront, data = train)
-
-partial_data_sqft_living15 <- data.frame(x_res = summary(sqft_living15_lm)$residuals, y_res = summary(lm_no_sqft_living15)$residuals)
-
-partial_data_sqft_living15 %>%
-  ggplot(aes(x = x_res, y = y_res)) +
+res <- data.frame(fitted = transformed_reduced$fitted.values, residuals = transformed_reduced$residuals)
+res %>%
+  ggplot(aes(x = fitted, y = residuals)) +
   geom_point() +
-  geom_smooth(method = lm, se = FALSE) +
-  labs(x = 'sqft_living15 Residuals', y = 'y Residuals (Excluding sqft_living15)', title = 'Partial Regression Plot for sqft_living15')
+  geom_hline(yintercept = 0, color = 'red') +
+  labs(x = 'Fitted y', y = 'Residuals', title = 'Residual Plot')
 ```
 ```{r}
-generate_partial_regression_plot <- function(response, predictor, predictors, lm_data) {
-  filtered_predictors <- predictors[! predictors %in% c(predictor)]
-  predictors_str <- paste(filtered_predictors, sep = ' + ')
-  lm_no_x_str <- paste(response, predictors_str, sep = ' ~ ')
-  x_lm_str <- paste(predictor, predictors_str, sep = ' ~ ')
-  lm_no_x <- lm(lm_no_x_str, data = lm_data)
-  x_lm <- lm(x_lm_str, data = lm_data)
-  
-  partial_data_x <- data.frame(x_res = summary(x_lm)$residuals, y_res = summary(lm_no_x)$residuals)
-  
-  x_label <- paste(predictor, 'Residuals', collapse = ' ')
-  y_label <- paste('price Residuals excluding', predictor, collapse = ' ')
-  title_str <- paste('Partial Regression Plot for', predictor, collapse = ' ')
-  
-  partial_data_x %>%
-    ggplot(aes(x = x_res, y = y_res)) +
-    geom_point() +
-    geom_smooth(method = lm, se = FALSE) +
-    labs(x = x_label, y = y_label, title = title_str)
-}
+acf(transformed_reduced$residuals, main = 'ACF Plot of Residuals')
 ```
 ```{r}
-predictors = c('sqft_living', 'sqft_living15', 'sqft_lot15', 'bedrooms', 'bathrooms', 'floors', 'yr_built', 'view', 'condition', 'grade', 'waterfront')
-generate_partial_regression_plot('price', 'bathrooms', predictors, train)
-#for (predictor in predictors) {
-#  generate_partial_regression_plot('price', predictor, predictors, train)
-#}
+qqnorm(transformed_reduced$residuals)
+qqline(transformed_reduced$residuals, col = 'red')
 ```
-
+```{r}
+boxcox(transformed_reduced)
+```
+Passes the regression assumptions after transforming y.
+Will check with prof woo/xiang tomorrow if box cox is okay (near 1)

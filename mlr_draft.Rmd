@@ -1,0 +1,75 @@
+# Metadata
+- Title: Multiple Linear Regression on King County Data
+#
+
+```{r, output = FALSE, show = FALSE}
+library(tidyverse)
+library(leaps)
+library(faraway)
+```
+
+```{r}
+filtered_kc <- kc %>%
+  mutate(
+    renovated = factor(ifelse(yr_renovated > 0, 1, 0)),
+    century_built = factor(yr_built - yr_built %% 100),
+    #decade_built = factor(yr_built - yr_built %% 10),
+    #zipcode_group = factor(zipcode - zipcode %% 50),
+    #bedrooms = factor(bedrooms),
+    #bathrooms = factor(bathrooms),
+    #floors = factor(floors),
+    #bedrooms_bin = factor(ifelse(bedrooms > 5, 1, 0)),
+    #bathrooms_bin = factor(ifelse(bathrooms > 4, 1, 0)),
+    #floors_bin = factor(ifelse(floors > 2, 1, 0)),
+    #view_bin = factor(ifelse(view > 2, 1, 0)),
+    view_factor = factor(view),
+    #condition_bin = factor(ifelse(condition > 3, 1, 0)),
+    #condition = factor(condition),
+    #grade = factor(grade),
+    # grade_cat = cut(grade, breaks = c(-Inf, 5, 10, Inf), labels = c('low', 'moderate', 'high'), right = FALSE), # 1-4 low, 5-9 moderate, 10-13 high
+    #grade_bin = factor(ifelse(grade > 7, 1, 0)),
+    waterfront = factor(waterfront),
+    #zipcode = factor(zipcode)
+  ) %>%
+  subset(select = -c(id, date, zipcode, yr_renovated)) #%>%
+  #subset(select = -c(grade, condition))
+
+set.seed(1) ##for reproducibility to get the same split
+sample <- sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
+train <- filtered_kc[sample, ] ##training data frame
+test <- filtered_kc[-sample, ] ##test data frame
+```
+```{r}
+# intercept only model
+regnull <- lm(price ~ 1, data = train)
+# model with all predictors
+regfull <- lm(price ~ ., data = train)
+```
+```{r}
+step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'both')
+```
+```{r}
+#step(regfull, scope=list(lower = regnull, upper = regfull), direction = 'both')
+```
+
+```{r}
+#lm_result <- lm(price ~ sqft_living + waterfront + view + grade + renovated + century_built + bedrooms_bin + bathrooms_bin + floors_bin, data = train)
+lm_result <- lm(price ~ sqft_living + long + lat + view_factor + yr_built + grade + waterfront + bedrooms + bathrooms, data = train)
+summary(lm_result)
+```
+```{r}
+vif(lm_result)
+```
+
+```{r}
+train %>%
+  ggplot(aes(x = zipcode_group)) +
+  geom_bar(fill = 'blue')
+```
+```{r}
+train %>%
+  ggplot(aes(x = sqft_living, y = price, color = view_factor)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE)
+```
+
