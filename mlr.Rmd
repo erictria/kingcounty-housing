@@ -174,3 +174,130 @@ boxcox(transformed_reduced)
 ```
 Passes the regression assumptions after transforming y.
 Will check with prof woo/xiang tomorrow if box cox is okay (near 1)
+
+### Validation
+
+```{r}
+compute_press <- function(model) { 
+  residuals <- summary(model)$residuals 
+  hat_diagonals <- influence(model)$hat
+  pr <- residuals/(1 - hat_diagonals)
+  press <- sum(pr^2)
+  return(press) 
+}
+
+press <- compute_press(transformed_reduced)
+press
+
+# use anova() to get the sum of squares for the linear model
+lm_anova <- anova(transformed_reduced)
+sst <- sum(lm_anova$'Sum Sq')
+
+# calculate the predictive R^2
+pred_r_squared <- 1 - press/(sst)
+pred_r_squared
+```
+
+$R^2 = 0.7585$
+
+$R^2_a = 0.7583$
+
+$R^2_{pred} = 0.758044$
+
+75.80% of the variation in the response
+variable on new observations can be explained by our model.
+
+Since all $R^2$ values are close to each other, not indicative of overfitting.
+
+
+### Residual Analysis
+
+```{r}
+ext.student.res <- rstudent(transformed_reduced)
+student.res <- rstandard(transformed_reduced)
+```
+```{r}
+res.frame <- data.frame(student.res, ext.student.res)
+```
+
+```{r}
+n<-dim(train)[1]
+p<-8
+crit<-qt(1-0.05/(2*n), n-p-1)
+```
+
+```{r}
+ext.student.res[abs(ext.student.res)>crit]
+```
+We have 3 outliers at observations 2590, 4025, and 12552
+
+```{r}
+##observation 1449
+train[c('2590', '4025', '12552'),]
+```
+
+### Leverage Points
+
+```{r}
+lev<-lm.influence(transformed_reduced)$hat ##identify high leverage points
+#lev[lev>2*p/n]
+```
+
+We have a lot of leverage points.
+
+Influential points based on Cook's distance
+```{r}
+##cooks distance
+COOKS<-cooks.distance(transformed_reduced)
+COOKS[COOKS>qf(0.5,p,n-p)]
+```
+
+We have no influential points. We will proceed with the data and regression as is.
+
+### Partial Regression Plots
+```{r}
+generate_partial_regression_plot <- function(response, predictor, predictors, lm_data) {
+  filtered_predictors <- predictors[! predictors %in% c(predictor)]
+  predictors_str <- paste(filtered_predictors, sep = ' + ')
+  lm_no_x_str <- paste(response, predictors_str, sep = ' ~ ')
+  x_lm_str <- paste(predictor, predictors_str, sep = ' ~ ')
+  lm_no_x <- lm(lm_no_x_str, data = lm_data)
+  x_lm <- lm(x_lm_str, data = lm_data)
+  
+  partial_data_x <- data.frame(x_res = summary(x_lm)$residuals, y_res = summary(lm_no_x)$residuals)
+  
+  x_label <- paste(predictor, 'Residuals', collapse = ' ')
+  y_label <- paste('price Residuals excluding', predictor, collapse = ' ')
+  title_str <- paste('Partial Regression Plot for', predictor, collapse = ' ')
+  
+  partial_data_x %>%
+    ggplot(aes(x = x_res, y = y_res)) +
+    geom_point() +
+    geom_smooth(method = lm, se = FALSE) +
+    labs(x = x_label, y = y_label, title = title_str)
+}
+```
+
+```{r}
+predictors = c('sqft_living', 'bedrooms', 'bathrooms', 'grade', 'view', 'lat', 'yr_built', 'waterfront')
+generate_partial_regression_plot('ystar', 'sqft_living', predictors, train)
+```
+```{r}
+generate_partial_regression_plot('ystar', 'bedrooms', predictors, train)
+```
+```{r}
+generate_partial_regression_plot('ystar', 'bathrooms', predictors, train)
+```
+```{r}
+generate_partial_regression_plot('ystar', 'grade', predictors, train)
+```
+```{r}
+generate_partial_regression_plot('ystar', 'view', predictors, train)
+```
+```{r}
+generate_partial_regression_plot('ystar', 'lat', predictors, train)
+```
+```{r}
+generate_partial_regression_plot('ystar', 'yr_built', predictors, train)
+```
+Partial regression plots show that they are linear.
