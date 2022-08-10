@@ -10,6 +10,7 @@ library(leaps)
 library(MASS)
 library(tidyverse)
 library(faraway)
+library(lawstat)
 ```
 
 ```{r}
@@ -17,19 +18,40 @@ kc <- read.csv('kc_house_data.csv', header = TRUE)
 ```
 
 ```{r}
-filtered_kc <- kc %>%
+zipcodes <- data.frame(zipcode = c(98004, 98005, 98052, 98121, 98007, 98109, 98033, 98122,
+                         98029, 98006, 98103, 98102, 98074, 98101, 98040, 98115,
+                         98112, 98107, 98119, 98105, 98075, 98008, 98116, 98053,
+                         98034, 98039, 98144, 98199, 98117, 98104, 98028, 98027,
+                         98011, 98177, 98125, 98065, 98072, 98077, 98126, 98155,
+                         98136, 98059, 98133, 98118, 98106),
+                       area_bin = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                         1, 1, 1, 1, 1, 1, 1))
+expanded_kc <- merge(x = kc, y = zipcodes, by = 'zipcode', all.x = T)
+```
+
+
+```{r}
+filtered_kc <- expanded_kc %>%
   mutate(
+    area_bin = factor(ifelse(!is.na(area_bin), 1, 0)),
     renovated = factor(ifelse(yr_renovated > 0, 1, 0)),
     view_bin = factor(view), # changed to factor since price and view has no clear linear relationship
     waterfront = factor(waterfront),
   ) %>%
-  subset(select = -c(id, date, zipcode, yr_renovated))
+  subset(select = -c(id, date, zipcode, long, lat, yr_renovated)) %>%
+  filter(bedrooms < 33) ##outlier likely entered incorrectly
 
 set.seed(1) ##for reproducibility to get the same split
 sample<-sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
 train<-filtered_kc[sample, ] ##training data frame
 test<-filtered_kc[-sample, ] ##test data frame
 ```
+
+```{r}
+table(test$area_bin)
+```
+
 
 ```{r}
 sqft_cols <- c('sqft_living', 'sqft_lot', 'sqft_above', 'sqft_basement', 'sqft_living15', 'sqft_lot15')
@@ -75,7 +97,7 @@ We will also be using recency of the building:
 
 ```{r}
 filtered_kc <- filtered_kc %>%
-  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, lat, long, waterfront, view, yr_built, renovated))
+  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, area_bin, waterfront, view, yr_built, renovated))
 
 set.seed(1) ##for reproducibility to get the same split
 sample<-sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
@@ -99,7 +121,8 @@ step(regfull, scope=list(lower = regnull, upper = regfull), direction = 'both')
 summary(regfull)
 ```
 ```{r}
-reduced <- lm(price ~ sqft_living + bedrooms + bathrooms + grade + view + lat + long + yr_built + waterfront, data = train)
+#reduced <- lm(price ~ sqft_living + bedrooms + bathrooms + grade + view + lat + long + yr_built + waterfront, data = train)
+reduced <- regfull
 anova(reduced, regfull)
 ```
 Based on ANOVA F test, we reject the null and go with the reduced model without `renovated`
@@ -144,13 +167,15 @@ Applied log so that the coefficients can still be interpreted.
 train <- train %>% 
   mutate(ystar = log(price))
 
-transformed <- lm(ystar ~ sqft_living + bedrooms + bathrooms + grade + view + lat + long + yr_built + waterfront, data = train)
+transformed <- lm(ystar ~ sqft_living + bedrooms + bathrooms + grade + 
+    area_bin + waterfront + view + yr_built + renovated, data = train)
 summary(transformed)
 ```
-`long` appears to be insignificant after transforming `price`
+`long` appears to be insignificant after transforming `bedrooms`
 
 ```{r}
-transformed_reduced <- lm(ystar ~ sqft_living + bedrooms + bathrooms + grade + view + lat + yr_built + waterfront, data = train)
+transformed_reduced <- lm(ystar ~ sqft_living + bathrooms + grade + 
+    area_bin + waterfront + view + yr_built + renovated, data = train)
 summary(transformed_reduced)
 ```
 
@@ -162,18 +187,54 @@ res %>%
   geom_hline(yintercept = 0, color = 'red') +
   labs(x = 'Fitted y', y = 'Residuals', title = 'Residual Plot')
 ```
-```{r}
-acf(transformed_reduced$residuals, main = 'ACF Plot of Residuals')
-```
-```{r}
-qqnorm(transformed_reduced$residuals)
-qqline(transformed_reduced$residuals, col = 'red')
-```
-```{r}
-boxcox(transformed_reduced)
-```
 Passes the regression assumptions after transforming y.
 Will check with prof woo/xiang tomorrow if box cox is okay (near 1)
+
+```{r}
+train <- train %>% 
+  mutate(log_sqft_living = log(sqft_living))
+
+transformed_x_y <- lm(ystar ~ log_sqft_living + bathrooms + grade + 
+    area_bin + waterfront + view + yr_built + renovated, data = train)
+summary(transformed_x_y)
+```
+```{r}
+res <- data.frame(fitted = transformed_x_y$fitted.values, residuals = transformed_x_y$residuals)
+res %>%
+  ggplot(aes(x = fitted, y = residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = 'red') +
+  labs(x = 'Fitted y', y = 'Residuals', title = 'Residual Plot')
+```
+```{r}
+acf(transformed_x_y$residuals, main = 'ACF Plot of Residuals')
+```
+```{r}
+qqnorm(transformed_x_y$residuals)
+qqline(transformed_x_y$residuals, col = 'red')
+```
+
+```{r}
+boxcox(transformed_x_y)
+```
+Levene's test
+```{r}
+ggplot(train, aes(x = waterfront, y = ystar))+
+  geom_boxplot()+
+  labs(title = 'Dist of Log Price by Waterfront')
+```
+```{r}
+levene.test(train$ystar, train$waterfront)
+```
+
+```{r}
+levene.test(train$ystar, train$renovated)
+```
+
+```{r}
+levene.test(train$ystar, train$area_bin)
+```
+
 
 ### Validation
 
@@ -186,7 +247,7 @@ compute_press <- function(model) {
   return(press) 
 }
 
-press <- compute_press(transformed_reduced)
+press <- compute_press(transformed_x_y)
 press
 
 # use anova() to get the sum of squares for the linear model
@@ -213,8 +274,8 @@ Since all $R^2$ values are close to each other, not indicative of overfitting.
 ### Residual Analysis
 
 ```{r}
-ext.student.res <- rstudent(transformed_reduced)
-student.res <- rstandard(transformed_reduced)
+ext.student.res <- rstudent(transformed_x_y)
+student.res <- rstandard(transformed_x_y)
 ```
 ```{r}
 res.frame <- data.frame(student.res, ext.student.res)
@@ -229,18 +290,18 @@ crit<-qt(1-0.05/(2*n), n-p-1)
 ```{r}
 ext.student.res[abs(ext.student.res)>crit]
 ```
-We have 3 outliers at observations 2590, 4025, and 12552
+We have 4 outliers at observations 10903, 10998, 10999, and 19125
 
 ```{r}
 ##observation 1449
-train[c('2590', '4025', '12552'),]
+train[c('10903', '10998', '10999', '19125'),]
 ```
 
 ### Leverage Points
 
 ```{r}
-lev<-lm.influence(transformed_reduced)$hat ##identify high leverage points
-#lev[lev>2*p/n]
+lev<-lm.influence(transformed_x_y)$hat ##identify high leverage points
+length(lev[lev>2*p/n])
 ```
 
 We have a lot of leverage points.
@@ -248,7 +309,7 @@ We have a lot of leverage points.
 Influential points based on Cook's distance
 ```{r}
 ##cooks distance
-COOKS<-cooks.distance(transformed_reduced)
+COOKS<-cooks.distance(transformed_x_y)
 COOKS[COOKS>qf(0.5,p,n-p)]
 ```
 
@@ -279,11 +340,8 @@ generate_partial_regression_plot <- function(response, predictor, predictors, lm
 ```
 
 ```{r}
-predictors = c('sqft_living', 'bedrooms', 'bathrooms', 'grade', 'view', 'lat', 'yr_built', 'waterfront')
-generate_partial_regression_plot('ystar', 'sqft_living', predictors, train)
-```
-```{r}
-generate_partial_regression_plot('ystar', 'bedrooms', predictors, train)
+predictors = c('log_sqft_living', 'bathrooms', 'grade', 'view', 'area_bin', 'yr_built', 'waterfront', 'renovated')
+generate_partial_regression_plot('ystar', 'log_sqft_living', predictors, train)
 ```
 ```{r}
 generate_partial_regression_plot('ystar', 'bathrooms', predictors, train)
@@ -294,9 +352,7 @@ generate_partial_regression_plot('ystar', 'grade', predictors, train)
 ```{r}
 generate_partial_regression_plot('ystar', 'view', predictors, train)
 ```
-```{r}
-generate_partial_regression_plot('ystar', 'lat', predictors, train)
-```
+
 ```{r}
 generate_partial_regression_plot('ystar', 'yr_built', predictors, train)
 ```
