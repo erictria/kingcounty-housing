@@ -1,0 +1,46 @@
+```{r}
+library(tidyverse)
+library(dplyr)
+library(MASS)
+library(ggplot2)
+library(leaps)
+library(gridExtra)
+library(ROCR)
+library(maps)
+
+
+Data <-read.csv("kc_house_data.csv", header=TRUE)
+```
+
+```{r}
+#Change zipcode to a factor
+Data$zipcode <- as.factor(Data$zipcode)
+```
+
+```{r}
+price_brackets <- quantile(Data$price, c(0, .25, .50, .75, 1))
+Data$price_cat <- cut(Data$price, price_brackets, 
+                    labels=c("Low", "Lower Middle", "Upper Middle", "High"),
+                    include.lowest=TRUE) 
+```
+
+```{r}
+# outline of King County WA
+washington <- map_data("county", region="washington")
+kingcounty <- subset(washington, subregion=="king")
+```
+
+```{r}
+ggplot() +
+  geom_path(data=kingcounty, aes(x=long, y=lat, group=group), color="black") +
+  geom_point(data=Data, aes(x = long, y = lat, alpha = 0.1, color=price_cat)) +
+  labs(x="Longitude", y="Latitude", color="Price Bracket",
+      title="Distribution of Homes in King County by Price Bracket") +
+  coord_quickmap() +
+  scale_alpha(guide = 'none') +
+  theme_economist() + 
+  scale_color_economist()+
+  theme_bw() +
+  theme(plot.title=element_text(hjust=0.5, vjust=5))+
+  theme(plot.title = element_text(vjust = 1))
+```
