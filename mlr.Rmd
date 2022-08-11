@@ -98,6 +98,13 @@ test <- test %>%
 ```
 
 ```{r}
+train %>%
+  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, view, yr_built)) %>%
+  pairs(lower.panel = NULL)
+```
+
+
+```{r}
 regnull <- lm(price ~ 1, data = train) ##intercept-only model
 regfull <- lm(price ~ ., data = train) ##model with all the predictors
 ```
@@ -227,7 +234,9 @@ res %>%
 Based on the residual plot, we can see that the curvature problem has been resolved. Both assumptions 1 and 2 are met.
 
 ```{r}
-acf(transformed_x_y$residuals, main = 'ACF Plot of Residuals')
+par(mar = c(5,4,0,2) + 0.1)
+acf(transformed_x_y$residuals, adj = 0.5)
+title('ACF Plot of Residuals', line = -1)
 ```
 Based on the ACF plot of the residuals, the error terms appear to be uncorrelated. Insignificant ACFs at lag 1 and greater indicate that the residuals are uncorrelated, so assumption 3, uncorrelated errors, is met.
 
@@ -323,6 +332,30 @@ $R^2_{pred} = 0.7834337$
 Based on $R^2_{pred}, we can say that 78.34% of the variation in the response variable on new observations can be explained by our model.
 
 Since all $R^2$ values are close to each other, we do not have a strong indication of overfitting.
+
+```{r}
+# test MSE
+test <- test %>%
+  mutate(
+    log_price = log(price),
+    log_sqft_living = log(sqft_living)
+  )
+
+test_mse <- mean((test$log_price - predict.lm(transformed_x_y, test)) ^ 2)
+test_mse
+```
+$Test\ MSE = 0.0599879$
+
+```{r}
+test_mse_values <- data.frame(actual = test$log_price, fitted = predict.lm(transformed_x_y, test))
+test_mse_values %>%
+  ggplot(aes(x = actual, y = fitted)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(x = 'Actual log_price', y = 'Fitted log_price', title = 'Fitted y Against Actual y for the Test Data')
+```
+
+The above graph shows the linear relationship between the fitted and actual values in the test data set.
 
 
 ### Residual Analysis
