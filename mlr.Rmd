@@ -267,15 +267,27 @@ For `area_bin`, the split used for this analysis is separating the really good a
 
 Check ratio of largest variance with lowest variance:
 ```{r}
-lm_anova <- anova(transformed_x_y)
-lm_anova
-area_bin_msres <- lm_anova[7,]$'Sum Sq'/(n - p)
-area_bin_msres
-waterfront_msres <- lm_anova[8,]$'Sum Sq'/(n - p)
-renovated_msres <- lm_anova[9,]$'Sum Sq'/(n - p)
+renovated_var_0 <- var(train$price[train$renovated == 0])
+renovated_var_1 <- var(train$price[train$renovated == 1])
+
+max(renovated_var_0, renovated_var_1) < (1.5 * min(renovated_var_0, renovated_var_1))
 ```
 
-We will proceed with validating our regression model.
+```{r}
+waterfront_var_0 <- var(train$price[train$waterfront == 0])
+waterfront_var_1 <- var(train$price[train$waterfront == 1])
+
+max(waterfront_var_0, waterfront_var_1) < (1.5 * min(waterfront_var_0, waterfront_var_1))
+```
+
+
+```{r}
+area_bin_var_0 <- var(train$price[train$area_bin == 0])
+area_bin_var_1 <- var(train$price[train$area_bin == 1])
+
+max(area_bin_var_0, area_bin_var_1) < (1.5 * min(area_bin_var_0, area_bin_var_1))
+```
+Even though the ratio f the variances are greater than 1.5, we will proceed with validating our model since the constant variance assumption was met in the residual plot. It is possible that the Levene's test can be resolved by fitting separate regressions for the different classes but due to the constraints of this project we will proceed with the current model based on the other tests and assumptions previously checked. 
 
 ### Validation
 
