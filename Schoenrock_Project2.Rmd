@@ -1,0 +1,367 @@
+---
+title: "Project 2"
+author: "Eve Schoenrock"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(tidyverse)
+library(leaps) ##stepwise
+```
+
+```{r}
+home <- read.delim('kc_house_data.csv', sep=',')
+```
+
+```{r}
+zipcodes <- data.frame('zip'=c(98004, 98005, 98052, 98121, 98007, 98109, 98033, 98122,
+                         98029, 98006, 98103, 98102, 98074, 98101, 98040, 98115,
+                         98112, 98107, 98119, 98105, 98075, 98008, 98116, 98053,
+                         98034, 98039, 98144, 98199, 98117, 98104, 98028, 98027, 
+                         98011, 98177, 98125, 98065, 98072, 98077, 98126, 98155,
+                         98136, 98059, 98133, 98118, 98106),
+                       'A'=c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+                         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+                         1, 1, 1, 1, 1, 1, 1))
+```
+
+
+```{r}
+head(home)
+```
+
+```{r}
+homie <- home %>%
+  mutate(grade_bin = ifelse(grade > 7, 1, 0), ##1=excellent, 0=poor/average
+         renovated = ifelse(yr_renovated > 0, 1, 0)) %>% 
+  select(grade_bin, price, bedrooms, bathrooms, sqft_living, sqft_lot, floors, waterfront, view, yr_built, renovated) %>%
+  filter(bedrooms < 33) ##outlier likely entered incorrectly
+```
+
+```{r}
+set.seed(1) ##for reproducibility to get the same split
+sample<-sample.int(nrow(homie), floor(.50*nrow(homie)), replace = F)
+train<-homie[sample, ] ##training data frame
+test<-homie[-sample, ] ##test data frame
+```
+
+```{r, warning=FALSE}
+regnull3 <- glm(grade_bin~1, family='binomial', data=train)
+regfull3 <- glm(grade_bin~., family='binomial', data=train)
+```
+
+### Stepwise regressions to choose variables for question
+
+Forward
+```{r, warning=FALSE}
+step(regnull3, scope=list(lower=regnull3, upper=regfull3), direction = 'forward')
+```
+
+Backward
+```{r, warning=FALSE}
+step(regfull3, scope=list(lower=regnull3, upper=regfull3), direction="backward")
+```
+
+Stepwise
+```{r, warning=FALSE}
+step(regnull3, scope=list(lower=regnull3, upper=regfull3), direction="both")
+```
+
+Use all predictors according to forward, backward, and stepwise regression analysis.
+
+```{r}
+reg <- glm(grade_bin~.-sqft_lot, data=train)
+summary(reg)
+```
+
+Drop `sqft_lot` because insignificant p-value.
+
+### Checking multicollinearity
+
+```{r}
+cor(train[,-c(1,6)])
+```
+
+It looks like `sqft_living` is highly correlated (>.7) with `price` and `bathrooms`.
+
+```{r}
+library(faraway)
+vif(reg)
+```
+
+However, no VIFs are greater than 10 so we will continue assuming that there is no multicollinearity present.
+
+### Detecting Outliers, high leverage, and influential observations
+
+```{r}
+ext.student.res<-rstudent(reg)
+```
+
+```{r}
+n<-dim(train)[1]
+p<-10
+crit<-qt(1-0.05/(2*n), n-p-1)
+```
+
+```{r}
+ext.student.res[abs(ext.student.res)>crit]
+```
+
+We 3 outliers, according to the external studentized residuals, at observations 3915, 4412, and 1449.
+
+```{r}
+##observation 1449
+train[c('1449'),]
+```
+
+
+```{r}
+##observation 4412
+train[c('4412'),]
+```
+
+```{r}
+##observation 3915
+train[c('3915'),]
+```
+
+Let's check leverages
+
+```{r}
+lev<-lm.influence(reg)$hat ##identify high leverage points
+lengths(list(lev[lev>2*p/n]))
+```
+
+We have a lot of leverage points. This is probably because housing markets differ across Seattle and we are not controlling for neighborhood.
+
+Influential points based on Cook's distance
+```{r}
+##cooks distance
+COOKS<-cooks.distance(reg)
+COOKS[COOKS>qf(0.5,p,n-p)]
+```
+
+We have no influential points. We will proceed with the data and regression as is.
+
+### Logistic Regression 1
+
+```{r}
+prop.table(table(train$grade_bin))
+```
+
+The training data is split with 52.3% of homes being low or average quality and 47.7% of homes being of excellent quality (based on construction).
+
+```{r}
+prop.table(table(test$grade_bin))
+```
+
+Essentially, the same split is found in the test data (52.2%/47.8%).
+
+```{r}
+##change to factor for visuals
+train$grade_bin<-factor(train$grade_bin)
+levels(train$grade_bin) <- c("Average/Low Quality","Excellent Quality")
+
+train$waterfront<-factor(train$waterfront)
+levels(train$waterfront) <- c("No","Yes")
+
+train$view<-factor(train$view)
+levels(train$view) <- c("None", "Fair","Average", "Good", "Excellent")
+
+train$renovated<-factor(train$renovated)
+levels(train$renovated)<-c('No', 'Yes')
+```
+
+```{r}
+##waterfront
+ggplot(train, aes(x=waterfront, fill=grade_bin)) +
+  geom_bar(position = "fill") +
+  labs(x="Water-Front Property", y="Proportion",
+       title="Home Quality by Water-Front Status")
+```
+
+We see that most waterfront properties, over 75% of them, are of excellent quality in construction. This is somewhat counter-intuitive to the coefficient on `waterfront` found in the logistic regression, but when controlling for all other predictors things could have changed.
+
+```{r}
+##view
+ggplot(train, aes(x=view, fill=grade_bin)) +
+  geom_bar(position = "fill") +
+  labs(x="View of Property", y="Proportion",
+       title="Home Quality by View of Property") +
+  theme(plot.title=element_text(hjust=0.5, vjust=5))
+```
+
+Properties where the view of the property is good or great tend to be constructed with excellent quality (over 75%). Likewise, when there is no view of the property homes tend to be constructed with average/low quality.
+
+```{r}
+##price
+ggplot(train, aes(x=grade_bin, y=log(price)))+
+  geom_boxplot()+
+  labs(title="Distribution of Home Price by Construction Quality",
+       x = 'Construction Quality', y = 'log(Price)') +
+  theme(plot.title=element_text(hjust=0.5, vjust=1))
+```
+
+```{r}
+##bedrooms
+ggplot(train, aes(x=bedrooms, color=grade_bin))+
+  geom_density()+
+  labs(title="Dist of Bedrooms by Construction Quality")
+```
+
+Most excellently constructed homes have more bedrooms, whereas most average/low quality homes have fewer bedrooms. The divide in quality appears to happen around 3 bedrooms. Again, this is counter-intuitive from the coefficient from the logistic regression model, but when controlling for all other predictors there could have been a change in relationship.
+
+```{r}
+##bathrooms
+ggplot(train, aes(x=grade_bin, y=bathrooms))+
+  geom_boxplot()+
+  labs(title="Dist of Bathrooms by Construction Quality")
+```
+
+It looks like bathrooms are more indicative of construction quality. Those constructed with excellent quality have a median number of bathrooms greater than 2 while those of lesser quality have a median number of bathrooms less than 2. Excellent quality homes have a much smaller bathroom range than lower quality homes.
+
+```{r}
+##sqft_living
+ggplot(train, aes(x=grade_bin, y=log(sqft_living)))+
+  geom_boxplot()+
+  labs(title="Distribution of Square Feet of Living Space by Construction Quality",
+       y='log(Square Feet of Living Space)', x='Construction Quality') +
+  theme(plot.title=element_text(hjust=0.5, vjust=1))
+```
+
+Excellently constructed homes are often larger than poorly/averagely constructed homes.
+
+```{r}
+##floors
+ggplot(train, aes(x=grade_bin, y=floors))+
+  geom_boxplot()+
+  labs(title="Dist of Floors by Construction Quality")
+```
+
+```{r}
+##yr_built
+ggplot(train, aes(x=yr_built, color=grade_bin))+
+  geom_density()+
+  labs(title="Distribution of Construction Dates by Construction Quality",
+       y='Density', x='Year Built') +
+  theme(plot.title=element_text(hjust=0.5, vjust=1))
+```
+
+Better quality homes were built more recently.
+
+```{r}
+##renovated
+ggplot(train, aes(x=renovated, fill=grade_bin)) +
+  geom_bar(position = "fill") +
+  labs(x="Renovation Status", y="Proportion",
+       title="Home Quality by Renovation Status")
+```
+
+There appears to be no difference in renovation status by quality of construction. However, when controlling for other predictors a more meaningful relationship could develop here.
+
+### Hypothesis tests
+We will call the regression obtained from stepwise analysis the full model. My hunch is that we could get by with fewer predictors. The predictors I think are valuable based on EDA are: `yr_built`, `floors`, `sqft_living`, `bathrooms`, `price`, `view`, and `waterfront`. A model with these predictors will be considered the reduced model.
+
+```{r, warning=FALSE}
+full <- reg
+reduced <- glm(grade_bin~yr_built+floors+sqft_living+bathrooms+price+view+waterfront, family='binomial', data = train)
+```
+
+```{r}
+##test if additional predictors have coefficients equal to 0 ##test stat
+TS2<-reduced$deviance-full$deviance
+##pvalue
+1-pchisq(TS2,9-7)
+```
+
+Based on the p-value, we reject the null hypothesis and prefer the larger model.
+
+### Evaluating Predictive Ability
+
+```{r}
+library(ROCR)
+```
+
+```{r}
+##predicted survival rate for test data based on training data
+preds<-predict(reg,newdata=test, type="response")
+##transform the input data into a format that is suited for the ##performance() function
+rates<-prediction(preds, test$grade_bin)
+##store the true positive and false positive rates
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+```
+
+**ROC Curve**
+```{r}
+plot(roc_result, main="ROC Curve for King County Housing")
+lines(x = c(0,1), y = c(0,1), col="red")
+```
+
+Our logistic regression does better than random guessing.
+
+**AUC**
+```{r}
+auc<-performance(rates, measure = "auc")
+auc@y.values
+```
+
+This also confirms our logistic regression does better than random guessing. An AUC of 0.90 is incredibly promising, since 1 is the best possible value.
+
+**Confusion Matrix**
+```{r}
+table(test$grade_bin, preds>0.5)
+```
+
+```{r}
+error_rate <- (905+1254)/(4737+905+1254+3910)
+print(error_rate)
+accuracy <- 1-error_rate
+print(accuracy)
+```
+
+```{r}
+fpr <- 905/(4737+905)
+print(fpr)
+fnr <- 1254/(1254+3910)
+print(fnr)
+```
+
+We are comfortable with the cutoff of 0.5 because the overall accuracy is 80% and we have only a 16% false positive rate and 24% false negative rate. This means that we will only predict a home to be of higher quality than it is 16% of the time - this is of greatest importance because we are most concerned with accurately predicting whether or not a home was constructed with excellent quality.
+
+```{r}
+table(test$grade_bin, preds>0.4)
+```
+
+```{r}
+error_rate <- (757+1295)/(4347+757+1295+4407)
+print(error_rate)
+accuracy <- 1-error_rate
+print(accuracy)
+```
+
+```{r}
+fpr <- 1295/(4347+1295)
+print(fpr)
+fnr <- 757/(757+4407)
+print(fnr)
+```
+
+Here is better accuracy (81%) but a worse false positive rate (23%).
+
+```{r}
+table(test$grade_bin, preds>0.42)
+```
+
+```{r}
+error_rate <- (502+1614)/(4028+1614+502+4662)
+print(error_rate)
+accuracy <- 1-error_rate
+print(accuracy)
+```
+
+A cutoff of 0.42 does not change the accuracy by much, and the false positive rate increases, so we prefer the 0.50 cutoff. 
