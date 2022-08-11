@@ -1,75 +1,438 @@
-# Metadata
-- Title: Multiple Linear Regression on King County Data
-#
+---
+title: "Project 2 - MLR"
+author: "Group 7"
+date: "`r Sys.Date()`"
+output: html_document
+---
 
-```{r, output = FALSE, show = FALSE}
-library(tidyverse)
+```{r}
 library(leaps)
+library(MASS)
+library(tidyverse)
 library(faraway)
+library(lawstat)
 ```
 
 ```{r}
-filtered_kc <- kc %>%
+kc <- read.csv('kc_house_data.csv', header = TRUE)
+```
+
+```{r}
+# zipcodes with overall grades of atleast an A on https://www.niche.com/places-to-live/search/best-zip-codes-to-live/c/king-county-wa/?publicSchoolsGrade=a
+
+zipcodes <- data.frame(zipcode = c(98004, 98005, 98052, 98121, 98007, 98109, 98033, 98122,
+                         98029, 98006, 98103, 98102, 98074, 98101, 98040, 98115,
+                         98112, 98107, 98119, 98105, 98075, 98008, 98116, 98053,
+                         98034, 98039, 98144, 98199, 98117, 98104, 98028, 98027,
+                         98011, 98177, 98125, 98065, 98072, 98077, 98126, 98155,
+                         98136, 98059, 98133, 98118, 98106),
+                       area_bin = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                         1, 1, 1, 1, 1, 1, 1))
+expanded_kc <- merge(x = kc, y = zipcodes, by = 'zipcode', all.x = T)
+```
+
+
+```{r}
+filtered_kc <- expanded_kc %>%
   mutate(
+    area_bin = factor(ifelse(!is.na(area_bin), 1, 0)), ## using the grades from Niche
     renovated = factor(ifelse(yr_renovated > 0, 1, 0)),
-    century_built = factor(yr_built - yr_built %% 100),
-    #decade_built = factor(yr_built - yr_built %% 10),
-    #zipcode_group = factor(zipcode - zipcode %% 50),
-    #bedrooms = factor(bedrooms),
-    #bathrooms = factor(bathrooms),
-    #floors = factor(floors),
-    #bedrooms_bin = factor(ifelse(bedrooms > 5, 1, 0)),
-    #bathrooms_bin = factor(ifelse(bathrooms > 4, 1, 0)),
-    #floors_bin = factor(ifelse(floors > 2, 1, 0)),
-    #view_bin = factor(ifelse(view > 2, 1, 0)),
-    view_factor = factor(view),
-    #condition_bin = factor(ifelse(condition > 3, 1, 0)),
-    #condition = factor(condition),
-    #grade = factor(grade),
-    # grade_cat = cut(grade, breaks = c(-Inf, 5, 10, Inf), labels = c('low', 'moderate', 'high'), right = FALSE), # 1-4 low, 5-9 moderate, 10-13 high
-    #grade_bin = factor(ifelse(grade > 7, 1, 0)),
     waterfront = factor(waterfront),
-    #zipcode = factor(zipcode)
   ) %>%
-  subset(select = -c(id, date, zipcode, yr_renovated)) #%>%
-  #subset(select = -c(grade, condition))
+  filter(bedrooms < 33) ## outlier likely entered incorrectly
 
-set.seed(1) ##for reproducibility to get the same split
-sample <- sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
-train <- filtered_kc[sample, ] ##training data frame
-test <- filtered_kc[-sample, ] ##test data frame
+set.seed(1) ## for reproducibility to get the same split
+sample<-sample.int(nrow(filtered_kc), floor(.50*nrow(filtered_kc)), replace = F)
+train<-filtered_kc[sample, ] ## training data frame
+test<-filtered_kc[-sample, ] # #test data frame
+```
+
+
+```{r}
+sqft_cols <- c('sqft_living', 'sqft_lot', 'sqft_above', 'sqft_basement', 'sqft_living15', 'sqft_lot15')
+count_cols <- c('bedrooms', 'bathrooms', 'floors')
+index_cols <- c('view', 'condition', 'grade')
 ```
 ```{r}
-# intercept only model
-regnull <- lm(price ~ 1, data = train)
-# model with all predictors
-regfull <- lm(price ~ ., data = train)
+train[, c('price', sqft_cols)] %>%
+  cor
 ```
+
+- From the features measured in square feet, sqft_living has the highest correlation with price at 0.7077887.
+- sqft_living is highly correlated with sqft_above and sqft_living15.
+- Based on the description, sqft_living should be the sum of sqft_above and sqft_basement.
+- From the features measured in square feet, we will use sqft_living as a predictor for the model.
+
+```{r}
+train[, c('price', count_cols)] %>%
+  cor
+```
+
+- Since the number of bathrooms and bedrooms are usually used for housing sales, we will use those two factors as predictors.
+
+```{r}
+train[, c('price', index_cols)] %>%
+  cor
+```
+
+- From the index features, grade has the highest correlation with price at 0.6697105.
+- We will use grade as a predictor in the model.
+- We will also use view since our model factors in the location of a house.
+
+In addition to these, we will use location features as predictors:
+- area_bin
+- waterfront
+
+We will also be using the age of the house and if it has been renovated or not:
+- yr_built
+- renovated
+
+
+```{r}
+train <- train %>%
+  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, view, yr_built)) ##training data frame
+
+test <- test %>%
+  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, view, yr_built)) ##test data frame
+```
+
+```{r}
+train %>%
+  subset(select = c(price, sqft_living, bedrooms, bathrooms, grade, view, yr_built)) %>%
+  pairs(lower.panel = NULL)
+```
+
+
+```{r}
+regnull <- lm(price ~ 1, data = train) ##intercept-only model
+regfull <- lm(price ~ ., data = train) ##model with all the predictors
+```
+
+### Stepwise
 ```{r}
 step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'both')
 ```
-```{r}
-#step(regfull, scope=list(lower = regnull, upper = regfull), direction = 'both')
-```
+### Regression Equation after Stepwise Regression:
+(Starting with the intercept-only model)
+
+Predictors selected: All the initial predictors were selected.
 
 ```{r}
-#lm_result <- lm(price ~ sqft_living + waterfront + view + grade + renovated + century_built + bedrooms_bin + bathrooms_bin + floors_bin, data = train)
-lm_result <- lm(price ~ sqft_living + long + lat + view_factor + yr_built + grade + waterfront + bedrooms + bathrooms, data = train)
-summary(lm_result)
+step(regfull, scope=list(lower = regnull, upper = regfull), direction = 'both')
 ```
-```{r}
-vif(lm_result)
-```
+### Regression Equation after Stepwise Regression:
+(Starting with the model with all predictors)
+
+Predictors selected: No predictors were dropped. Similar with the previous stepwise regression, all predictors were selected.
 
 ```{r}
-train %>%
-  ggplot(aes(x = zipcode_group)) +
-  geom_bar(fill = 'blue')
+step(regnull, scope=list(lower = regnull, upper = regfull), direction = 'forward')
 ```
+### Regression Equation after Forward Selection:
+
+Predictors selected: All the initial predictors were selected.
+
 ```{r}
-train %>%
-  ggplot(aes(x = sqft_living, y = price, color = view_factor)) +
+step(regfull, scope = list(lower = regnull, upper = regfull), direction = 'backward')
+```
+### Regression Equation after Backward Elimination:
+
+Predictors selected: No predictors were eliminated. Same with forward selection, all the initial predictors were selected.
+
+```{r}
+summary(regfull)
+```
+The predictors in the full regression model all had significant individual t-tests. 
+
+Although all the t-tests are significant, we noticed that `bedrooms` and `yr_built` have negative coefficients, which is the opposite of their individual correlations with price. We will conduct a reduced F test to check if we can drop those predictors.
+
+```{r}
+reduced <- lm(price ~ sqft_living + bathrooms + grade + view, data = train)
+anova(reduced, regfull)
+```
+
+With a p-value of 2.2e-16, which is smaller than 0.05, we reject the null hypothesis that `bedrooms` and `yr_built` are insignificant. We will proceed with using the full model.
+
+We will proceed to validate the full model.
+
+### Detecting multicollinearity
+
+```{r}
+vif(regfull)
+```
+
+Based on the VIFs, there are no signs of multicollinearity in the model.
+
+### Regression Assumptions
+```{r}
+res <- data.frame(fitted = regfull$fitted.values, residuals = regfull$residuals)
+res %>%
+  ggplot(aes(x = fitted, y = residuals)) +
   geom_point() +
-  geom_smooth(method = lm, se = FALSE)
+  geom_hline(yintercept = 0, color = 'red') +
+  labs(x = 'Fitted y', y = 'Residuals', title = 'Residual Plot')
+```
+
+Based on the residual plot, we can see signs of curvature and heteroskedasticity, which means assumptions 1 (linearity) and 2 (constant variance) are both not met yet. We will proceed with transforming the response variable (price) in order to meet assumption 2. If assumption 1 is still not met after transforming price, we will consider transforming a predictor variable.
+
+```{r}
+boxcox(regfull, lambda = seq(0, 0.4, 0.01))
+```
+To determine what transformation to apply to the price, we generated a Box-Cox plot and found that the log-likelihood maximizing value of lambda seemed to lie between 0.01 and 0.05. To maintain interpretability of the model coefficients, we will select $\lambda = 0$, since it is close to the log-likelihood maximizing range. We will be applying a log transformation to price.
+
+Transformation applied:
+
+$y^* = log(y)$
+
+
+```{r}
+train <- train %>% 
+  mutate(log_price = log(price))
+
+transformed <- lm(log_price ~ sqft_living + bedrooms + bathrooms + grade + view + yr_built, data = train)
+summary(transformed)
+```
+
+```{r}
+res <- data.frame(fitted = transformed$fitted.values, residuals = transformed$residuals)
+res %>%
+  ggplot(aes(x = fitted, y = residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = 'red') +
+  labs(x = 'Fitted y', y = 'Residuals', title = 'Residual Plot')
+```
+
+Based on the residual plot of the model after transforming y, we can see that the variance is much better spread out now for assumption 2. There is still signs of curvature in the plot so we will consider transforming a predictor variable. 
+
+We will perform a log transformation on `sqft_living` since it is one of the predictors that is highly right skewed.
+```{r}
+train %>%
+  ggplot(aes(x=sqft_living))+
+  geom_histogram()+
+  labs(x = 'Square Feet of Living', title="Histogram for Square Feet of Living")
+```
+
+
+```{r}
+train <- train %>% 
+  mutate(log_sqft_living = log(sqft_living))
+
+transformed_x_y <- lm(log_price ~ log_sqft_living + bedrooms + bathrooms + grade + view + yr_built, data = train)
+summary(transformed_x_y)
+```
+```{r}
+res <- data.frame(fitted = transformed_x_y$fitted.values, residuals = transformed_x_y$residuals)
+res %>%
+  ggplot(aes(x = fitted, y = residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = 'red') +
+  labs(x = 'Fitted y', y = 'Residuals', title = 'Residual Plot')
+```
+Based on the residual plot, we can see that the curvature problem has been resolved. Both assumptions 1 and 2 are met.
+
+```{r}
+par(mar = c(5,4,0,2) + 0.1)
+acf(transformed_x_y$residuals, adj = 0.5)
+title('ACF Plot of Residuals', line = -1)
+```
+Based on the ACF plot of the residuals, the error terms appear to be uncorrelated. Insignificant ACFs at lag 1 and greater indicate that the residuals are uncorrelated, so assumption 3, uncorrelated errors, is met.
+
+```{r}
+qqnorm(transformed_x_y$residuals)
+qqline(transformed_x_y$residuals, col = 'red')
+```
+The Normal Q-Q plot shows that, although our error terms do appear to be normally distributed for most of the theoretical quantiles, this relationship tends to break down at the extremes of the graph. Since this is the least necessary condition for linear regression to be valid, especially when the other assumptions are met, we decided to move forward with using the linear regression model.
+
+### Validation
+
+```{r}
+compute_press <- function(model) { 
+  residuals <- summary(model)$residuals 
+  hat_diagonals <- influence(model)$hat
+  pr <- residuals/(1 - hat_diagonals)
+  press <- sum(pr^2)
+  return(press) 
+}
+
+press <- compute_press(transformed_x_y)
+press
+
+# use anova() to get the sum of squares for the linear model
+lm_anova <- anova(transformed_x_y)
+sst <- sum(lm_anova$'Sum Sq')
+
+# calculate the predictive R^2
+pred_r_squared <- 1 - press/(sst)
+pred_r_squared
+```
+
+$PRESS = 649.6636$
+
+$R^2 = 0.7839$
+
+$R^2_a = 0.7837$
+
+$R^2_{pred} = 0.7834337$
+
+Based on $R^2_{pred}, we can say that 78.34% of the variation in the response variable on new observations can be explained by our model.
+
+Since all $R^2$ values are close to each other, we do not have a strong indication of overfitting.
+
+```{r}
+# test MSE
+test <- test %>%
+  mutate(
+    log_price = log(price),
+    log_sqft_living = log(sqft_living)
+  )
+
+test_mse <- mean((test$log_price - predict.lm(transformed_x_y, test)) ^ 2)
+test_mse
+```
+$Test\ MSE = 0.0599879$
+
+```{r}
+test_mse_values <- data.frame(actual = test$log_price, fitted = predict.lm(transformed_x_y, test))
+test_mse_values %>%
+  ggplot(aes(x = actual, y = fitted)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(x = 'Actual log_price', y = 'Fitted log_price', title = 'Fitted y Against Actual y for the Test Data')
+```
+
+The above graph shows the linear relationship between the fitted and actual values in the test data set.
+
+
+### Residual Analysis
+
+```{r}
+ext.student.res <- rstudent(transformed_x_y)
+student.res <- rstandard(transformed_x_y)
+```
+```{r}
+res.frame <- data.frame(student.res, ext.student.res)
+```
+
+```{r}
+n<-dim(train)[1]
+p<-6
+crit<-qt(1-0.05/(2*n), n-p-1)
+```
+
+```{r}
+ext.student.res[abs(ext.student.res) > crit]
+```
+We have 5 outliers at observations 1022, 10903, 10998, 10999, and 19124
+
+```{r}
+##outlier observation
+train[c('1022', '10903', '10998', '10999', '19124'),]
+```
+
+### Leverage Points
+
+```{r}
+lev <- lm.influence(transformed_x_y)$hat ##identify high leverage points
+length(lev[lev>2*p/n])
+```
+
+We have a lot of leverage points. The next step is to check if these leverage points are influential.
+
+Since the goal of our model is predict overall prices, we will check for influential points based on Cook's distance.
+```{r}
+##cooks distance
+COOKS <- cooks.distance(transformed_x_y)
+COOKS[COOKS>qf(0.5,p,n-p)]
+```
+
+We have no influential points based on Cook's distance.
+
+### Partial Regression Plots
+```{r}
+generate_partial_regression_plot <- function(response, predictor, predictors, lm_data) {
+  filtered_predictors <- predictors[! predictors %in% c(predictor)]
+  predictors_str <- paste(filtered_predictors, sep = ' + ')
+  lm_no_x_str <- paste(response, predictors_str, sep = ' ~ ')
+  x_lm_str <- paste(predictor, predictors_str, sep = ' ~ ')
+  lm_no_x <- lm(lm_no_x_str, data = lm_data)
+  x_lm <- lm(x_lm_str, data = lm_data)
+  
+  partial_data_x <- data.frame(x_res = summary(x_lm)$residuals, y_res = summary(lm_no_x)$residuals)
+  
+  x_label <- paste(predictor, 'Residuals', collapse = ' ')
+  y_label <- paste('log(Price) Residuals excluding', predictor, collapse = ' ')
+  title_str <- paste('Partial Regression Plot for', predictor, collapse = ' ')
+  
+  partial_data_x %>%
+    ggplot(aes(x = x_res, y = y_res)) +
+    geom_point() +
+    geom_smooth(method = lm, se = FALSE) +
+    labs(x = x_label, y = y_label, title = title_str)
+}
+```
+
+```{r}
+predictors = c('log_sqft_living', 'bedrooms', 'bathrooms', 'grade', 'view', 'yr_built')
+```
+```{r}
+generate_partial_regression_plot('log_price', 'log_sqft_living', predictors, train)
+```
+```{r}
+generate_partial_regression_plot('log_price', 'bedrooms', predictors, train)
+```
+
+```{r}
+generate_partial_regression_plot('log_price', 'bathrooms', predictors, train)
+```
+```{r}
+generate_partial_regression_plot('log_price', 'grade', predictors, train)
+```
+```{r}
+generate_partial_regression_plot('log_price', 'view', predictors, train)
+```
+
+```{r}
+generate_partial_regression_plot('log_price', 'yr_built', predictors, train)
+```
+Partial regression plots of the continuous predictors show linear patterns. This confirms that they can be added as linear predictors in the model.
+
+### Interpreting Coefficients
+```{r}
+summary(transformed_x_y)
+```
+```{r}
+intercept_factor <- exp(14.4226479)
+intercept_factor
+  
+# for every 1% increase in sqft_living, we expect 0.4549205% increase in response
+# can use taylor series since coefficient is smaller in magnitude
+sqft_living_factor <- 0.4549205
+sqft_living_factor
+
+bedrooms_factor <- exp(-0.0280571)
+bedrooms_factor
+
+bathrooms_factor <- exp(0.0606392)
+bathrooms_factor
+
+grade_factor <- exp(0.1591307)
+grade_factor
+
+view_factor <- exp(0.0650174)
+view_factor
+
+yr_built_factor <- exp(-0.0032341)
+yr_built_factor
+
+area_bin_factor <- exp(0.4468567)
+area_bin_factor
+
+waterfront_factor <- exp(0.4633652)
+waterfront_factor
+
+renovated_factor <- exp(0.0416109)
+renovated_factor
+
 ```
 

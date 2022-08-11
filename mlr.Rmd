@@ -276,27 +276,38 @@ For `area_bin`, the split used for this analysis is separating the really good a
 
 Check ratio of largest variance with lowest variance:
 ```{r}
-renovated_var_0 <- var(train$price[train$renovated == 0])
-renovated_var_1 <- var(train$price[train$renovated == 1])
+renovated_var_0 <- var(train$log_price[train$renovated == 0])
+renovated_var_1 <- var(train$log_price[train$renovated == 1])
 
 max(renovated_var_0, renovated_var_1) < (1.5 * min(renovated_var_0, renovated_var_1))
+max(renovated_var_0, renovated_var_1) / min(renovated_var_0, renovated_var_1)
 ```
 
 ```{r}
-waterfront_var_0 <- var(train$price[train$waterfront == 0])
-waterfront_var_1 <- var(train$price[train$waterfront == 1])
+waterfront_var_0 <- var(train$log_price[train$waterfront == 0])
+waterfront_var_1 <- var(train$log_price[train$waterfront == 1])
 
 max(waterfront_var_0, waterfront_var_1) < (1.5 * min(waterfront_var_0, waterfront_var_1))
+max(waterfront_var_0, waterfront_var_1) / min(waterfront_var_0, waterfront_var_1)
 ```
 
 
 ```{r}
-area_bin_var_0 <- var(train$price[train$area_bin == 0])
-area_bin_var_1 <- var(train$price[train$area_bin == 1])
+area_bin_var_0 <- var(train$log_price[train$area_bin == 0])
+area_bin_var_1 <- var(train$log_price[train$area_bin == 1])
 
 max(area_bin_var_0, area_bin_var_1) < (1.5 * min(area_bin_var_0, area_bin_var_1))
+max(area_bin_var_0, area_bin_var_1) / min(area_bin_var_0, area_bin_var_1)
 ```
-Even though the ratio f the variances are greater than 1.5, we will proceed with validating our model since the constant variance assumption was met in the residual plot. It is possible that the Levene's test can be resolved by fitting separate regressions for the different classes but due to the constraints of this project we will proceed with the current model based on the other tests and assumptions previously checked. 
+Ratio of largest and lowest variances:
+
+$renovated: 1.48$
+
+$waterfront: 1.59$
+
+$area\ bin: 1.39$
+
+Since ratio off the variances for `renovated` and `area_bin` are below 1.5 and `waterfront` is close at 1.59, we will proceed with validating our model after the additional check of variance ratios.
 
 ### Validation
 
