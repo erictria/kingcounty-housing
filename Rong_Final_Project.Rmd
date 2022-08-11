@@ -1,0 +1,160 @@
+```{r}
+library(tidyverse)
+library(GGally)
+library(lubridate)
+```
+
+```{r}
+data <- read.csv('kc_house_data.csv')
+
+#set the random number generator so same results can
+#be reproduced
+set.seed(1)
+
+#choose the observations to be in the training set.
+#splitting the data set 80-20
+sample <- sample.int(nrow(data), floor(.50*nrow(data)), replace = F)
+train <- data[sample, ] #training data
+test <- data[-sample, ] #test data
+```
+
+```{r}
+colnames(train)
+```
+
+```{r}
+train <- subset(train, select = -c(id, date, long, lat))
+  
+#colnames(train)
+```
+
+```{r}
+# linear regression visualizations
+train <- subset(train, bedrooms != '33') #drop outlier
+```
+
+
+```{r}
+zipcodes <- data.frame(zipcode = c(98004, 98005, 98052, 98121, 98007, 98109, 98033, 98122,
+                         98029, 98006, 98103, 98102, 98074, 98101, 98040, 98115,
+                         98112, 98107, 98119, 98105, 98075, 98008, 98116, 98053,
+                         98034, 98039, 98144, 98199, 98117, 98104, 98028, 98027,
+                         98011, 98177, 98125, 98065, 98072, 98077, 98126, 98155,
+                         98136, 98059, 98133, 98118, 98106),
+                       area_bin = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                         1, 1, 1, 1, 1, 1, 1))
+expanded_kc <- merge(x = train, y = zipcodes, by = 'zipcode', all.x = T)
+
+filtered_kc <- expanded_kc %>%
+  mutate(
+    area_bin = factor(ifelse(!is.na(area_bin), 1, 0)), ## using the grades from Niche
+    renovated = factor(ifelse(yr_renovated > 0, 1, 0)),
+    waterfront = factor(waterfront),
+  ) %>%
+  filter(bedrooms < 33) ## outlier likely entered incorrectly
+```
+
+
+```{r}
+ggplot(filtered_kc, aes(x=area_bin, y=price)) + geom_boxplot(fill='orange') + labs(x='Area',y='Price($)', title='Variation in Prices by Type of Area')
+```
+
+```{r}
+homie <- train %>%
+  mutate(grade_bin = ifelse(grade > 7, 1, 0), ##1=excellent, 0=poor/average
+         renovated = ifelse(yr_renovated > 0, 1, 0)) %>% 
+  select(grade_bin, price, bedrooms, bathrooms, sqft_living, sqft_lot, floors, waterfront, view, yr_built, renovated) %>%
+  filter(bedrooms < 33) ##outlier likely entered incorrectly
+```
+
+```{r}
+par(oma=c(0,0,2,0))
+ggplot(train, aes(x=grade)) + geom_histogram(fill='blue') + labs(title='Types and Frequencies of House Grades') + theme(plot.title=element_text(hjust=0.5, vjust=1))
+```
+
+```{r}
+#checking relationships between the quantitative variables part 1
+# 1. "date" 2. "price" 3. "bedrooms" 4. "bathrooms" 5. "sqft_living" 
+# 6. "sqft_lot" 7. "floors" 8. "waterfront" 9. "view" 10. "condition"   
+# 11. "grade" 12. "yr_built" 13. "yr_renovated" 14. "lat" 15. "long"     
+
+quant_plot_rooms <- ggpairs(data=train, columns=c(2:4),
+    axisLabels="show")
+quant_plot_rooms
+```
+
+```{r}
+#checking relationships between the quantitative variables part 2
+# 1. "date" 2. "price" 3. "bedrooms" 4. "bathrooms" 5. "sqft_living" 
+# 6. "sqft_lot" 7. "floors" 8. "waterfront" 9. "view" 10. "condition"   
+# 11. "grade" 12. "yr_built" 13. "yr_renovated" 14. "lat" 15. "long"     
+
+quant_plot_area <- ggpairs(data=train, columns=c(2, 5:7),
+    axisLabels="show")
+quant_plot_area
+```
+
+# Univariate Visualizations
+```{r}
+ggplot(train, aes(x=bedrooms)) + geom_bar(fill='orange') + labs(title='Frequency of Number of Bedrooms')
+```
+
+```{r}
+ggplot(train, aes(x=bathrooms)) + geom_bar(fill='brown') + labs(title='Frequency of Number of Bathrooms')
+```
+
+```{r}
+ggplot(train, aes(x=log(price))) + geom_histogram(fill='dark green', bins=50) + labs(title='Frequency of log(Price) of House Sales') + theme(plot.title=element_text(hjust=0.5, vjust=1))
+#hist(log(data$price))
+```
+
+```{r}
+# d <- density(log(train$price))
+# plot(d, main="Density of Price of King County Homes")
+# polygon(d, col="green", border="black")
+```
+
+# Bovariate Visualizations
+```{r}
+# bivariate visualizations
+options(scipen=999)
+
+ggplot(train, aes(x=sqft_living, y=price)) + geom_point(color='purple') + labs(x='Living Space (sqft)', y='Price (S)', title='Price vs Square-Feet Living Space') + theme(plot.title=element_text(hjust=0.5, vjust=1))
+```
+
+```{r}
+# bivariate visualizations
+options(scipen=999)
+ggplot(train, aes(x=sqft_living, y=price, color=sqft_lot)) + geom_point() + labs(title='Price vs Square-Feet Living Space and Square-Feet Lot Space')
+
+```
+
+```{r}
+ggplot(train, aes(x=factor(bedrooms), y=log(price))) + geom_boxplot(fill='red') + geom_smooth(method=lm) + labs(x='Number of Bedrooms', title = 'Variation in Prices by Number of Bedrooms')
+```
+```{r}
+ggplot(train, aes(x=factor(bathrooms), y=log(price))) + geom_boxplot(fill='pink') + geom_smooth(method=lm) + labs(x='Number of Bathrooms', title = 'Variation in Prices by Number of Bathrooms')
+```
+
+```{r}
+# logistic regression
+ggplot(train, aes(x=factor(waterfront), y=price)) + geom_boxplot(color='blue') + geom_smooth(method=lm) + labs(title = 'Variation in Prices by Number of Bedrooms')
+```
+
+```{r}
+ggplot(train, aes(x=yr_built, color=factor(waterfront))) + geom_density() + labs(x='Year Built', title='Density of House Built by Year and Waterfront Feature of Home') + theme(plot.title=element_text(hjust=0.5, vjust=1))
+```
+```{r}
+ggplot(filtered_kc, aes(x=yr_built, y=log(price), color=factor(area_bin))) + geom_boxplot() + labs(x='Year Built', y='log(Price)', title='Price vs Year Built and Waterfront Feature of Home') + theme(plot.title=element_text(hjust=0.5, vjust=1))
+```
+
+```{r}
+quantile(data$price)
+```
+```{r}
+colnames(train)
+```
+```{r}
+ggplot(train, aes(x=sqft_living, y=price, color=sqft_lot)) + geom_point(color='purple') + labs(title='Price vs Sqft_Living and Sqft_Lot')
+```
